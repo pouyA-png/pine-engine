@@ -42,6 +42,9 @@ class OpenTradesAccessor:
     def __le__(self, other):
         return self._broker.opentrades_count <= other
 
+    def __sub__(self, other):
+        return self._broker.opentrades_count - other
+
     def __bool__(self):
         return self._broker.opentrades_count > 0
 

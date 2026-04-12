@@ -80,7 +80,7 @@ DAYOFWEEK_SATURDAY  = 7
 # TECHNICAL ANALYSIS FUNCTIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def ta_pivothigh(source: Series, leftbars: int, rightbars: int):
+def ta_pivothigh(source: Series, leftbars, rightbars):
     """ta.pivothigh — detect a pivot high with confirmation delay.
 
     At the current bar, check if source[rightbars] (the candidate bar,
@@ -90,6 +90,8 @@ def ta_pivothigh(source: Series, leftbars: int, rightbars: int):
     Returns the pivot value if found, else NA.
     The pivot "fires" rightbars after the actual pivot bar.
     """
+    leftbars = int(leftbars)
+    rightbars = int(rightbars)
     if len(source) < leftbars + rightbars + 1:
         return NA
 
@@ -117,12 +119,14 @@ def ta_pivothigh(source: Series, leftbars: int, rightbars: int):
     return pivot_val
 
 
-def ta_pivotlow(source: Series, leftbars: int, rightbars: int):
+def ta_pivotlow(source: Series, leftbars, rightbars):
     """ta.pivotlow — detect a pivot low with confirmation delay.
 
     Mirror of ta_pivothigh. Returns pivot value if source[rightbars]
     is <= all surrounding bars.
     """
+    leftbars = int(leftbars)
+    rightbars = int(rightbars)
     if len(source) < leftbars + rightbars + 1:
         return NA
 
@@ -149,8 +153,9 @@ def ta_pivotlow(source: Series, leftbars: int, rightbars: int):
     return pivot_val
 
 
-def ta_highest(source: Series, length: int):
+def ta_highest(source: Series, length):
     """ta.highest — maximum value in the last `length` bars."""
+    length = int(length)
     result = NA
     for i in range(length):
         v = source[i]
@@ -161,8 +166,9 @@ def ta_highest(source: Series, length: int):
     return result
 
 
-def ta_lowest(source: Series, length: int):
+def ta_lowest(source: Series, length):
     """ta.lowest — minimum value in the last `length` bars."""
+    length = int(length)
     result = NA
     for i in range(length):
         v = source[i]

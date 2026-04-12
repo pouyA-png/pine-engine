@@ -272,7 +272,15 @@ class CodeGenerator:
         lines.append(f'{ind}ctx.bar_index.append(ctx.bar_idx)')
         lines.append(f'{ind}')
 
-        # Generate statements (skip strategy declaration, func defs, and skip-targeted code)
+        # Generate user function stubs (viz helpers like makeTxt, makeLine, makeLabel)
+        for stmt in self.program.statements:
+            if isinstance(stmt, FunctionDef):
+                params_str = ', '.join(stmt.params)
+                lines.append(f'{ind}def {stmt.name}({params_str}):')
+                lines.append(f'{ind}    return NA')
+                lines.append(f'{ind}')
+
+        # Generate statements (skip strategy declaration)
         for stmt in self.program.statements:
             if isinstance(stmt, (StrategyDeclaration, IndicatorDeclaration, FunctionDef)):
                 continue
@@ -310,6 +318,11 @@ class CodeGenerator:
         if name in self.skip_vars:
             return [f'{ind}# SKIP (viz): {name}']
 
+        # Check if this is an input.* declaration → use params lookup
+        if isinstance(stmt.initializer, FunctionCall) and stmt.initializer.name.startswith('input.'):
+            py_name = self._var_ref(name)
+            return [f'{ind}{py_name} = ctx.params.get("{name}", {self._gen_input_default(stmt.initializer)})']
+
         val = self._gen_expr(stmt.initializer)
 
         if stmt.is_var or stmt.is_varip:
@@ -319,6 +332,12 @@ class CodeGenerator:
             # Regular declaration — re-initialized each bar
             py_name = self._var_ref(name)
             return [f'{ind}{py_name} = {val}']
+
+    def _gen_input_default(self, call: FunctionCall) -> str:
+        """Extract default value from input.* call for fallback."""
+        if call.args:
+            return self._gen_expr(call.args[0])
+        return 'NA'
 
     def _gen_assignment(self, stmt: Assignment, indent: int) -> List[str]:
         """Generate reassignment."""
@@ -333,9 +352,26 @@ class CodeGenerator:
         return [f'{ind}{py_name} = {val}']
 
     def _gen_if(self, stmt: IfStatement, indent: int) -> List[str]:
-        """Generate if/elif/else."""
+        """Generate if/elif/else.
+        Pre-declares any variables assigned inside if/elif/else blocks
+        to avoid UnboundLocalError in Python.
+        """
         ind = '    ' * indent
         lines = []
+
+        # Pre-declare variables assigned inside any branch
+        inner_vars = set()
+        self._collect_assigned_vars(stmt.then_body, inner_vars)
+        for _, body in stmt.elif_branches:
+            self._collect_assigned_vars(body, inner_vars)
+        if stmt.else_body:
+            self._collect_assigned_vars(stmt.else_body, inner_vars)
+        # Only pre-declare non-var, non-param locals
+        for vname in sorted(inner_vars):
+            if vname not in self.var_names and vname not in self.skip_vars:
+                py_name = self._var_ref(vname)
+                if not py_name.startswith('ctx.') and not py_name.startswith('_skip_'):
+                    lines.append(f'{ind}{py_name} = NA')
 
         cond = self._gen_expr(stmt.condition)
         lines.append(f'{ind}if {cond}:')
@@ -367,6 +403,26 @@ class CodeGenerator:
             lines.extend(else_lines)
 
         return lines
+
+    def _collect_assigned_vars(self, stmts: List, result: set):
+        """Recursively collect all variable names assigned in a block."""
+        for s in stmts:
+            if isinstance(s, VarDeclaration) and not s.is_var and not s.is_varip:
+                if s.name not in self.skip_vars:
+                    result.add(s.name)
+            elif isinstance(s, Assignment):
+                if s.target not in self.var_names:
+                    result.add(s.target)
+            elif isinstance(s, IfStatement):
+                self._collect_assigned_vars(s.then_body, result)
+                for _, body in s.elif_branches:
+                    self._collect_assigned_vars(body, result)
+                if s.else_body:
+                    self._collect_assigned_vars(s.else_body, result)
+            elif isinstance(s, ForStatement):
+                self._collect_assigned_vars(s.body, result)
+            elif isinstance(s, WhileStatement):
+                self._collect_assigned_vars(s.body, result)
 
     def _gen_for(self, stmt: ForStatement, indent: int) -> List[str]:
         """Generate for loop."""
@@ -551,11 +607,11 @@ class CodeGenerator:
                 return self._gen_ta_call(py_name, expr)
             return f'{py_name}({args})'
 
-        # Input functions → parameter lookup
+        # Input functions → this shouldn't be called directly;
+        # input.* calls are handled in _gen_var_decl via the inputs dict.
+        # If we get here, it means an inline input call — return a params lookup.
         if name.startswith('input.'):
-            # This should have been captured during parsing
-            # Generate a ctx.params lookup
-            return f'ctx.params.get("{name}", NA)'
+            return f'ctx.params.get("__inline_input__", NA)'
 
         # Unknown function — generate as-is (will error at runtime if truly needed)
         args = self._gen_call_args(expr)
