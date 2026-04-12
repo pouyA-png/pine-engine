@@ -367,11 +367,12 @@ class CodeGenerator:
         if stmt.else_body:
             self._collect_assigned_vars(stmt.else_body, inner_vars)
         # Only pre-declare non-var, non-param locals
+        # Use False as default — safer than NA because NA is truthy in Python
         for vname in sorted(inner_vars):
             if vname not in self.var_names and vname not in self.skip_vars:
                 py_name = self._var_ref(vname)
                 if not py_name.startswith('ctx.') and not py_name.startswith('_skip_'):
-                    lines.append(f'{ind}{py_name} = NA')
+                    lines.append(f'{ind}{py_name} = False')
 
         cond = self._gen_expr(stmt.condition)
         lines.append(f'{ind}if {cond}:')
@@ -588,6 +589,21 @@ class CodeGenerator:
         if name == 'strategy.cancel':
             args = [self._gen_expr(a) for a in expr.args]
             return f'ctx.strategy.cancel({args[0]})'
+        if name == 'strategy.cancel_all':
+            return 'ctx.strategy.cancel_all()'
+        if name == 'strategy.close_all':
+            comment = ''
+            if 'comment' in expr.kwargs:
+                comment = self._gen_expr(expr.kwargs['comment'])
+            return f'ctx.strategy.close_all(comment={comment})' if comment else 'ctx.strategy.close_all()'
+        if name == 'strategy.close':
+            args_parts = [self._gen_expr(a) for a in expr.args]
+            comment = ''
+            if 'comment' in expr.kwargs:
+                comment = self._gen_expr(expr.kwargs['comment'])
+            if comment:
+                return f'ctx.strategy.close({args_parts[0]}, comment={comment})'
+            return f'ctx.strategy.close({args_parts[0]})'
         if name == 'strategy.opentrades.entry_comment':
             args = [self._gen_expr(a) for a in expr.args]
             return f'ctx.strategy.opentrades.entry_comment(int({args[0]}))'
@@ -678,6 +694,8 @@ class CodeGenerator:
             return 'ctx.strategy.opentrades'
         if name == 'strategy.closedtrades':
             return 'ctx.strategy.closedtrades'
+        if name == 'strategy.equity':
+            return 'ctx.strategy.equity'
 
         # Persistent var
         if name in self.var_names:
