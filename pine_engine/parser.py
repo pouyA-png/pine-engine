@@ -116,6 +116,10 @@ class Parser:
             self.match(TokenType.NEWLINE)
             return BreakStatement()
 
+        # While loop (only used in viz code — parse structure but flag as viz)
+        if tok.type == TokenType.IDENTIFIER and tok.value == 'while':
+            return self.parse_while_statement()
+
         # Assignment (name := expr) or declaration (name = expr) or expression
         if tok.type in (TokenType.IDENTIFIER, TokenType.TYPE_INT, TokenType.TYPE_FLOAT,
                         TokenType.TYPE_BOOL, TokenType.TYPE_STRING):
@@ -351,6 +355,14 @@ class Parser:
         self.match(TokenType.NEWLINE)
         body = self.parse_block()
         return ForStatement(var_name=var_name, start=start, end=end, body=body)
+
+    def parse_while_statement(self):
+        """Parse while condition ... body"""
+        self.advance()  # 'while' identifier
+        condition = self.parse_expression()
+        self.match(TokenType.NEWLINE)
+        body = self.parse_block()
+        return WhileStatement(condition=condition, body=body)
 
     def parse_block(self) -> List[Statement]:
         """Parse an indented block of statements."""

@@ -87,6 +87,13 @@ class BreakStatement:
 
 
 @dataclass
+class WhileStatement:
+    """while condition ... body (only used in viz code)."""
+    condition: Expr
+    body: List[Statement]
+
+
+@dataclass
 class FunctionDef:
     """User function: name(params) => expr_or_block"""
     name: str
@@ -187,5 +194,5 @@ Expr = Union[BinaryOp, UnaryOp, Ternary, HistoryRef, FunctionCall,
              BoolLiteral, NaLiteral]
 
 Statement = Union[VarDeclaration, Assignment, IfStatement, ForStatement,
-                  BreakStatement, FunctionDef, ExprStatement,
+                  WhileStatement, BreakStatement, FunctionDef, ExprStatement,
                   StrategyDeclaration, IndicatorDeclaration]
