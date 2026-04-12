@@ -91,10 +91,16 @@ def compile_pine(source_or_path: str) -> CompiledPine:
     Returns:
         CompiledPine object ready for execution
     """
-    path = Path(source_or_path)
-    if path.exists():
-        source = path.read_text()
-        source_name = path.name
+    # Detect if input is a file path or source string
+    is_path = len(source_or_path) < 500 and '\n' not in source_or_path
+    if is_path:
+        path = Path(source_or_path)
+        if path.exists():
+            source = path.read_text()
+            source_name = path.name
+        else:
+            source = source_or_path
+            source_name = '<string>'
     else:
         source = source_or_path
         source_name = '<string>'
