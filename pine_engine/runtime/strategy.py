@@ -109,6 +109,14 @@ class StrategyAPI:
         self.closedtrades = ClosedTradesAccessor(self.broker)
         self._initial_capital = initial_capital
 
+    @property
+    def opentrades_count(self):
+        return self.broker.opentrades_count
+
+    @property
+    def closedtrades_count(self):
+        return self.broker.closedtrades_count
+
     def order(self, id: str, direction: str, qty: int = 1,
               limit: float = None, comment: str = ""):
         """strategy.order() — place a pending limit order."""

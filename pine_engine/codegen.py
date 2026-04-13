@@ -280,6 +280,25 @@ class CodeGenerator:
                 lines.append(f'{ind}    return NA')
                 lines.append(f'{ind}')
 
+        # Pre-declare ALL non-var locals once at top of execute_bar.
+        # Prevents UnboundLocalError for vars only assigned in some branches,
+        # without wiping out values across sibling if-blocks.
+        all_locals = set()
+        for stmt in self.program.statements:
+            if isinstance(stmt, (StrategyDeclaration, IndicatorDeclaration, FunctionDef)):
+                continue
+            self._collect_assigned_vars([stmt], all_locals)
+        if all_locals:
+            lines.append(f'{ind}# Pre-declare locals (prevents UnboundLocalError)')
+            for vname in sorted(all_locals):
+                if vname in self.var_names or vname in self.skip_vars:
+                    continue
+                py_name = self._var_ref(vname)
+                if py_name.startswith('ctx.') or py_name.startswith('_skip_'):
+                    continue
+                lines.append(f'{ind}{py_name} = False')
+            lines.append(f'{ind}')
+
         # Generate statements (skip strategy declaration)
         for stmt in self.program.statements:
             if isinstance(stmt, (StrategyDeclaration, IndicatorDeclaration, FunctionDef)):
@@ -353,26 +372,13 @@ class CodeGenerator:
 
     def _gen_if(self, stmt: IfStatement, indent: int) -> List[str]:
         """Generate if/elif/else.
-        Pre-declares any variables assigned inside if/elif/else blocks
-        to avoid UnboundLocalError in Python.
+
+        Locals are pre-declared ONCE at the top of execute_bar (see
+        _gen_execute_bar), not per-if. Pre-declaring per-if wiped out
+        values set by prior sibling branches.
         """
         ind = '    ' * indent
         lines = []
-
-        # Pre-declare variables assigned inside any branch
-        inner_vars = set()
-        self._collect_assigned_vars(stmt.then_body, inner_vars)
-        for _, body in stmt.elif_branches:
-            self._collect_assigned_vars(body, inner_vars)
-        if stmt.else_body:
-            self._collect_assigned_vars(stmt.else_body, inner_vars)
-        # Only pre-declare non-var, non-param locals
-        # Use False as default — safer than NA because NA is truthy in Python
-        for vname in sorted(inner_vars):
-            if vname not in self.var_names and vname not in self.skip_vars:
-                py_name = self._var_ref(vname)
-                if not py_name.startswith('ctx.') and not py_name.startswith('_skip_'):
-                    lines.append(f'{ind}{py_name} = False')
 
         cond = self._gen_expr(stmt.condition)
         lines.append(f'{ind}if {cond}:')
@@ -689,11 +695,13 @@ class CodeGenerator:
         if name in BUILTIN_SERIES:
             return f'ctx.{name}[0]'
 
-        # Strategy properties
+        # Strategy properties — return int count, not the accessor.
+        # The accessor is only used when followed by .exit_comment(k) etc.,
+        # which is handled as a function call pattern elsewhere.
         if name == 'strategy.opentrades':
-            return 'ctx.strategy.opentrades'
+            return 'ctx.strategy.opentrades_count'
         if name == 'strategy.closedtrades':
-            return 'ctx.strategy.closedtrades'
+            return 'ctx.strategy.closedtrades_count'
         if name == 'strategy.equity':
             return 'ctx.strategy.equity'
 
