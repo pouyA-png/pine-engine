@@ -52,6 +52,7 @@ class OpenTrade:
     entry_comment: str
     entry_time: Optional[datetime] = None
     remaining_qty: int = field(init=False)
+    fired_exit_ids: set = field(default_factory=set)
 
     def __post_init__(self):
         self.remaining_qty = self.qty
@@ -92,7 +93,16 @@ class BrokerEmulator:
     def register_exit(self, exit_id: str, from_entry: str, qty: int,
                       limit: float, stop: float,
                       comment_profit: str = "", comment_loss: str = ""):
-        """Register or replace an exit order (strategy.exit semantics)."""
+        """Register or replace an exit order (strategy.exit semantics).
+
+        Once an exit has fired for the current open trade, further
+        strategy.exit() calls with the same id are no-ops (TV behavior).
+        The exit re-arms only when a new entry fills for the same
+        from_entry id.
+        """
+        trade = self.open_trades.get(from_entry)
+        if trade is not None and exit_id in trade.fired_exit_ids:
+            return
         self.exit_orders[exit_id] = {
             "from_entry": from_entry, "qty": qty,
             "limit": limit, "stop": stop,
@@ -197,6 +207,7 @@ class BrokerEmulator:
                     exit_comment=ec, entry_time=trade.entry_time,
                     exit_time=bar.timestamp))
                 trade.remaining_qty -= qty_close
+                trade.fired_exit_ids.add(exit_id)
                 if trade.remaining_qty <= 0:
                     del self.open_trades[spec["from_entry"]]
                 fired.append(ec)

@@ -148,9 +148,14 @@ def pine_max(a, b):
 
 
 def pine_round(a, precision=0):
+    """Pine's math.round — half-away-from-zero (not banker's rounding)."""
     if is_na(a):
         return NA
-    return round(a, precision)
+    factor = 10 ** precision
+    scaled = a * factor
+    if scaled >= 0:
+        return math.floor(scaled + 0.5) / factor
+    return -math.floor(-scaled + 0.5) / factor
 
 
 def pine_floor(a):

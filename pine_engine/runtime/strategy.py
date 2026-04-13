@@ -103,11 +103,13 @@ class StrategyAPI:
         ec = ctx.strategy.closedtrades.exit_comment(k)
     """
 
-    def __init__(self, initial_capital: float = 100000.0):
+    def __init__(self, initial_capital: float = 100000.0,
+                 point_value: float = 20.0):
         self.broker = BrokerEmulator()
         self.opentrades = OpenTradesAccessor(self.broker)
         self.closedtrades = ClosedTradesAccessor(self.broker)
         self._initial_capital = initial_capital
+        self._point_value = point_value
 
     @property
     def opentrades_count(self):
@@ -182,13 +184,13 @@ class StrategyAPI:
 
     @property
     def equity(self) -> float:
-        """strategy.equity — current account equity."""
+        """strategy.equity — current account equity in dollars."""
         pnl = sum(
             ((t.exit_price - t.entry_price) * t.qty if t.side == 'long'
              else (t.entry_price - t.exit_price) * t.qty)
             for t in self.broker.closed_trades
         )
-        return self._initial_capital + pnl
+        return self._initial_capital + pnl * self._point_value
 
     def process_bar(self, bar: Bar):
         """Process entries + exits for this bar. Call BEFORE script execution."""
