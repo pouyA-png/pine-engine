@@ -20,3 +20,12 @@ output/
 *.csv.local
 user_data/
 
+
+# leglab runtime/data artifacts — never commit labels or generated dumps
+quant/legcal/labels*.json
+quant/legcal/eval*.json
+quant/legcal/*.bak
+
+# Large bar-data CSVs under quant/ — never commit market data
+quant/*.csv
+quant/**/*.csv

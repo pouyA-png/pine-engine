@@ -189,6 +189,39 @@ def test_real_pine_generates_valid_python():
     print(f"  [PASS] Real trading_bot.pine → valid executable Python")
 
 
+def test_user_func_expr_transpiled():
+    """User function with => expression body is transpiled (not stubbed to NA)."""
+    source = '''f(a, b) => math.max(a, b)
+x = f(1.0, 2.0)'''
+    code = generate_code(*parse(tokenize(source)))
+    assert 'def f(a, b):' in code
+    assert 'return pine_max(a, b)' in code, code
+    compile(code, '<gen>', 'exec')
+    print("  [PASS] User function (expr body) transpiled")
+
+
+def test_user_func_param_shadows_global():
+    """A function parameter shadows a same-named global var inside the body."""
+    source = '''var float a = na
+g(a) => a + 1.0
+y = g(5.0)'''
+    code = generate_code(*parse(tokenize(source)))
+    assert 'return (a + 1.0)' in code, code   # param 'a', NOT ctx.v_a
+    assert 'ctx.v_a' in code                  # global still declared elsewhere
+    compile(code, '<gen>', 'exec')
+    print("  [PASS] Function param shadows global var")
+
+
+def test_user_func_viz_stays_stub():
+    """A function whose body uses viz builtins stays stubbed (return NA)."""
+    import re
+    source = '''mk(p) => label.new(bar_index, p, "x")
+z = mk(close)'''
+    code = generate_code(*parse(tokenize(source)))
+    assert re.search(r'def mk\(p\):\s*\n\s*return NA', code), code
+    print("  [PASS] Viz helper function stays stubbed")
+
+
 if __name__ == "__main__":
     print("Running Phase 3 Codegen Tests...")
     print()
@@ -212,6 +245,9 @@ if __name__ == "__main__":
     test_time_function()
     test_skip_viz()
     test_constants()
+    test_user_func_expr_transpiled()
+    test_user_func_param_shadows_global()
+    test_user_func_viz_stays_stub()
     print()
     print("Integration:")
     test_real_pine_generates_valid_python()

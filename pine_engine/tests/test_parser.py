@@ -314,9 +314,9 @@ def test_real_pine_file():
     assert len(if_stmts) > 5, f"Expected >5 if statements, got {len(if_stmts)}"
     assert len(inputs) > 10, f"Expected >10 inputs, got {len(inputs)}"
 
-    # Check strategy declaration
+    # Check strategy declaration name was extracted (robust to renames; file is now "NQ v25cris LIMITS…")
     sd = strategy_decls[0]
-    assert "NQ Pre-Open" in sd.name
+    assert isinstance(sd.name, str) and "NQ" in sd.name, f"unexpected strategy name: {sd.name!r}"
 
     # Check some known inputs exist
     input_names = list(inputs.keys())

@@ -124,25 +124,135 @@ class Token:
         return f"Token({self.type.name}, {self.value!r}, L{self.line})"
 
 
+# ── Pine v5 line-continuation support (added 2026-06-29) ──
+# Pine allows a single statement to span physical lines: inside unclosed ()/[], or when a
+# line ends with / the next line begins with a binary operator. The original lexer emitted a
+# NEWLINE after every physical line, so multi-line expressions (e.g. a string built with
+# leading '+' on each line) broke the parser. _logical_lines() joins them first.
+_CONT_START = ('+', '-', '*', '/', '%', '?', ':', ',', '.', ')', ']',
+               '==', '!=', '<=', '>=', '=>', '<', '>')
+_CONT_END = ('+', '-', '*', '/', '%', '?', ':', ',', '.', '(', '[', '=', '<', '>')
+
+
+def _strip_comment(s: str) -> str:
+    """Drop a trailing // comment, preserving string literals (# color literals are kept)."""
+    instr = None
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if instr:
+            if c == '\\' and i + 1 < n:
+                i += 2; continue
+            if c == instr:
+                instr = None
+            i += 1; continue
+        if c in ('"', "'"):
+            instr = c; i += 1; continue
+        if c == '/' and i + 1 < n and s[i + 1] == '/':
+            return s[:i]
+        i += 1
+    return s
+
+
+def _net_depth(s: str) -> int:
+    """Net unclosed ( and [ on a line, ignoring strings and comments."""
+    instr = None
+    d = 0
+    i, n = 0, len(s)
+    while i < n:
+        c = s[i]
+        if instr:
+            if c == '\\' and i + 1 < n:
+                i += 2; continue
+            if c == instr:
+                instr = None
+            i += 1; continue
+        if c in ('"', "'"):
+            instr = c; i += 1; continue
+        if c == '/' and i + 1 < n and s[i + 1] == '/':
+            break
+        if c in '([':
+            d += 1
+        elif c in ')]':
+            d -= 1
+        i += 1
+    return d
+
+
+def _starts_cont(stripped: str) -> bool:
+    """A statement never STARTS with a binary operator -> such a line continues the previous."""
+    if stripped.startswith('and ') or stripped.startswith('or ') or stripped in ('and', 'or'):
+        return True
+    return stripped.startswith(_CONT_START)
+
+
+def _ends_cont(code: str) -> bool:
+    """A line ending in a binary operator / open bracket continues onto the next."""
+    code = code.rstrip()
+    if code.endswith(' and') or code.endswith(' or') or code.endswith('=>'):
+        return True
+    return code.endswith(_CONT_END)
+
+
+def _logical_lines(source: str):
+    """Merge physical lines into logical lines (Pine v5 line-continuation).
+    Continues when: inside unclosed ()/[]; next line starts with a binary operator; or the
+    current line ends with one. Blank/comment lines at depth 0 end a logical line. The first
+    physical line's indentation is preserved so INDENT/DEDENT handling is unchanged.
+    Yields (line_num, text)."""
+    raw = source.split('\n')
+    n = len(raw)
+    out = []
+    i = 0
+    while i < n:
+        line = raw[i]
+        stripped = line.strip()
+        if stripped == '' or (stripped.startswith('//') and not stripped.startswith('//@')):
+            i += 1
+            continue
+        if stripped.startswith('//@'):
+            out.append((i + 1, line))   # pragma stays standalone
+            i += 1
+            continue
+        start = i + 1
+        merged = _strip_comment(line).rstrip()
+        depth = _net_depth(line)
+        j = i + 1
+        while j < n:
+            nxt = raw[j]
+            nst = nxt.strip()
+            if depth > 0:
+                if nst != '' and not nst.startswith('//'):
+                    merged = merged.rstrip() + ' ' + _strip_comment(nxt).strip()
+                depth += _net_depth(nxt)
+                j += 1
+                continue
+            if nst == '' or nst.startswith('//'):
+                break
+            if _starts_cont(nst) or _ends_cont(_strip_comment(merged)):
+                merged = merged.rstrip() + ' ' + _strip_comment(nxt).strip()
+                depth += _net_depth(nxt)
+                j += 1
+                continue
+            break
+        out.append((start, merged))
+        i = j
+    return out
+
+
 def tokenize(source: str) -> List[Token]:
     """Tokenize Pine Script v5 source code into a token stream.
 
     Returns a list of tokens including INDENT/DEDENT for block structure.
     """
     tokens: List[Token] = []
-    lines = source.split('\n')
     indent_stack = [0]  # Track indentation levels
-    line_num = 0
 
-    for raw_line in lines:
-        line_num += 1
-
-        # Skip completely empty lines
-        if raw_line.strip() == '':
-            continue
-
-        # Handle comments: // to end of line
-        # But preserve //@version pragma
+    # Merge physical lines into logical lines first so Pine v5 multi-line expressions don't
+    # emit a spurious NEWLINE that the parser rejects. First-line indentation is preserved. (2026-06-29)
+    for line_num, raw_line in _logical_lines(source):
+        # _logical_lines never yields blank lines; pure comments are dropped.
+        # Handle //@version pragma.
         stripped = raw_line.lstrip()
         if stripped.startswith('//@'):
             tokens.append(Token(TokenType.PRAGMA, stripped, line_num, 0))

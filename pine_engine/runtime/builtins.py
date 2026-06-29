@@ -18,6 +18,25 @@ from pine_engine.runtime.series import Series
 NY_TZ = ZoneInfo("America/New_York")
 
 
+def pine_str_tostring(x, fmt=None):
+    """Pine str.tostring. 1-arg == plain str() (unchanged). 2-arg honors a numeric format
+    string like "#.##"/"0.00" (count of '#'/'0' after the dot = fractional digits)."""
+    if fmt is None:
+        return str(x)
+    if isinstance(fmt, str) and '.' in fmt:
+        ndec = sum(1 for c in fmt.split('.', 1)[1] if c in '#0')
+        try:
+            return f"{float(x):.{ndec}f}"
+        except (TypeError, ValueError):
+            return str(x)
+    if isinstance(fmt, str) and fmt.strip() in ('0', '#'):
+        try:
+            return f"{float(x):.0f}"
+        except (TypeError, ValueError):
+            return str(x)
+    return str(x)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # TIME FUNCTIONS — all take Unix ms timestamp + timezone string
 # ═══════════════════════════════════════════════════════════════════════════════

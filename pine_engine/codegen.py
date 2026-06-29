@@ -52,7 +52,7 @@ BUILTIN_MAP = {
     'math.round': 'pine_round',
     'math.floor': 'pine_floor',
     'na': 'is_na',
-    'str.tostring': 'str',
+    'str.tostring': 'pine_str_tostring',
 }
 
 # Pine constants → Python values
@@ -111,6 +111,12 @@ class CodeGenerator:
 
         # First pass: collect var names and detect series usage
         self._analyze()
+
+        # User-defined functions: which can be transpiled vs must stay stubbed.
+        self.user_funcs = {s.name: s for s in self.program.statements
+                           if isinstance(s, FunctionDef)}
+        self._func_locals: Set[str] = set()   # params/locals of the function being generated
+        self.stub_funcs = self._compute_stub_funcs()
 
     def _analyze(self):
         """Static analysis: find var declarations, series usage, skip targets."""
@@ -183,6 +189,77 @@ class CodeGenerator:
                 return True
         return False
 
+    def _walk_ast(self, node):
+        """Yield every dataclass AST node in the tree (including node itself)."""
+        if isinstance(node, list):
+            for x in node:
+                yield from self._walk_ast(x)
+        elif hasattr(node, '__dataclass_fields__'):
+            yield node
+            for fld in node.__dataclass_fields__:
+                yield from self._walk_ast(getattr(node, fld))
+
+    def _compute_stub_funcs(self):
+        """User functions that cannot be faithfully transpiled stay stubbed
+        (return NA): those using viz/array builtins, per-call-site `var` state,
+        or (transitively) calling such a function. Everything else is real."""
+        info = {}
+        stub = set()
+        for name, fn in self.user_funcs.items():
+            calls, has_var = set(), False
+            for n in self._walk_ast(fn.body):
+                t = type(n).__name__
+                if t == 'FunctionCall':
+                    calls.add(n.name)
+                elif t == 'VarDeclaration' and (getattr(n, 'is_var', False)
+                                                or getattr(n, 'is_varip', False)):
+                    has_var = True
+            info[name] = calls
+            if has_var or any(self._is_skip_func(c) for c in calls):
+                stub.add(name)
+        changed = True
+        while changed:
+            changed = False
+            for name, calls in info.items():
+                if name not in stub and any(c in stub for c in calls):
+                    stub.add(name)
+                    changed = True
+        return stub
+
+    def _gen_function_body(self, stmt, body_indent: str, level: int):
+        """Transpile a non-stub user function body. Params and internal locals
+        shadow globals; `ctx` is reached via the enclosing execute_bar closure.
+        Pine returns the value of the last statement/expression."""
+        body = stmt.body
+        locals_set = set(stmt.params)
+        if isinstance(body, list):
+            assigned = set()
+            self._collect_assigned_vars(body, assigned)
+            locals_set |= assigned
+        prev = self._func_locals
+        self._func_locals = locals_set
+        out = []
+        try:
+            if isinstance(body, list):
+                for v in sorted(locals_set - set(stmt.params)):
+                    out.append(f'{body_indent}{v} = NA')
+                for i, s in enumerate(body):
+                    last = (i == len(body) - 1)
+                    if last and isinstance(s, ExprStatement):
+                        out.append(f'{body_indent}return {self._gen_expr(s.expr)}')
+                    elif last and isinstance(s, Assignment):
+                        out.extend(self._gen_statement(s, indent=level))
+                        out.append(f'{body_indent}return {s.name}')
+                    else:
+                        out.extend(self._gen_statement(s, indent=level))
+                if not out or not out[-1].lstrip().startswith('return'):
+                    out.append(f'{body_indent}return NA')
+            else:
+                out.append(f'{body_indent}return {self._gen_expr(body)}')
+        finally:
+            self._func_locals = prev
+        return out
+
     # ── Code generation ──
 
     def generate(self) -> str:
@@ -201,7 +278,8 @@ class CodeGenerator:
         lines.append('    pine_hour, pine_minute, pine_dayofweek,')
         lines.append('    pine_year, pine_month, pine_dayofmonth,')
         lines.append('    ta_pivothigh, ta_pivotlow, ta_highest, ta_lowest,')
-        lines.append('    ta_rsi, ta_crossover, ta_crossunder')
+        lines.append('    ta_rsi, ta_crossover, ta_crossunder,')
+        lines.append('    pine_str_tostring')
         lines.append(')')
         lines.append('from pine_engine.runtime.strategy import STRATEGY_LONG, STRATEGY_SHORT')
         lines.append('')
@@ -272,12 +350,16 @@ class CodeGenerator:
         lines.append(f'{ind}ctx.bar_index.append(ctx.bar_idx)')
         lines.append(f'{ind}')
 
-        # Generate user function stubs (viz helpers like makeTxt, makeLine, makeLabel)
+        # User-defined functions: transpile the body where we can; viz/array/var
+        # helpers stay stubbed (return NA), preserving prior behavior.
         for stmt in self.program.statements:
             if isinstance(stmt, FunctionDef):
                 params_str = ', '.join(stmt.params)
                 lines.append(f'{ind}def {stmt.name}({params_str}):')
-                lines.append(f'{ind}    return NA')
+                if stmt.name in self.stub_funcs:
+                    lines.append(f'{ind}    return NA')
+                else:
+                    lines.extend(self._gen_function_body(stmt, ind + '    ', 2))
                 lines.append(f'{ind}')
 
         # Pre-declare ALL non-var locals once at top of execute_bar.
@@ -687,6 +769,9 @@ class CodeGenerator:
 
     def _resolve_identifier(self, name: str) -> str:
         """Resolve an identifier to its Python equivalent."""
+        # Function param/local shadows globals (lexical scope inside user funcs)
+        if name in self._func_locals:
+            return name
         # Check constants first
         if name in CONSTANT_MAP:
             return CONSTANT_MAP[name]
@@ -718,6 +803,8 @@ class CodeGenerator:
 
     def _var_ref(self, name: str) -> str:
         """Get the Python reference for assigning to a variable."""
+        if name in self._func_locals:
+            return name
         if name in self.var_names:
             return f'ctx.v_{name}'
         if name in self.skip_vars:
