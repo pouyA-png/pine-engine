@@ -1,0 +1,10 @@
+wrote 1889 trades -> trades_g1_sl9.csv  bars=2537193
+wrote 1822 trades -> trades_g2_sl12.csv  bars=2537193
+wrote 1785 trades -> trades_g3_sl16.csv  bars=2537193
+wrote 1751 trades -> trades_g4_nokw.csv  bars=2537193
+wrote 1602 trades -> trades_g5_skip2.csv  bars=2537193
+wrote 2005 trades -> trades_g6_cut60.csv  bars=2537193
+wrote 1277 trades -> trades_g7_nowed.csv  bars=2537193
+wrote 1836 trades -> trades_g8_noretr.csv  bars=2537193
+wrote 1831 trades -> trades_base2019.csv  bars=2537193
+GRID_DONE

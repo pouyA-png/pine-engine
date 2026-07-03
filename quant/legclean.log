@@ -1,0 +1,8 @@
+== 2017 leg-scaled SL, Leg-Filter ON (clean) ==
+variant             n   PF0   PFc    WR    mDD
+FIX30              55  6.83  2.63  67.3  1,650
+legxk2             63  1.17  0.63  49.2  5,291
+legxk3             59  1.80  1.01  59.3  2,724
+legxk4             57  3.06  1.51  63.2  2,538
+legxk6             55  6.54  2.57  67.3  1,710
+DONE

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Leg-Labeling — Login</title>
+<style>
+:root{--bg:#FAFAFA;--panel:#FFFFFF;--line:#E6E6E6;--text:#0A0A0A;--muted:#6B6B6B;--accent:#3F7D5A;--down:#CB4B41;--gold:#B8860B;--mono:ui-monospace,'JetBrains Mono','Geist Mono',monospace;--sans:ui-sans-serif,system-ui,'Segoe UI',Inter,sans-serif}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:100vh;display:flex;align-items:center;justify-content:center;-webkit-font-smoothing:antialiased}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:36px 40px;width:min(440px,92vw);text-align:center;box-shadow:0 10px 40px rgba(0,0,0,.06)}
+.icon{font-size:38px;margin-bottom:8px}
+h1{font-size:21px;font-weight:700;margin-bottom:4px;letter-spacing:-.3px}
+.sub{color:var(--muted);font-size:11px;margin-bottom:22px;font-family:var(--mono);text-transform:uppercase;letter-spacing:.7px}
+.users{display:flex;gap:14px;margin-bottom:20px}
+.user{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 10px;font-size:14px;font-weight:700;border:1px solid var(--line);border-radius:8px;cursor:pointer;background:#fff;color:var(--text);transition:.15s}
+.user:hover{background:#F4F4F4}
+.user.sel{border-color:var(--accent);background:#F1F6F3;box-shadow:0 0 0 2px var(--accent) inset}
+.ava{font-size:34px}
+input{width:100%;text-align:center;font-size:16px;letter-spacing:3px;padding:13px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--text);margin-bottom:12px;font-family:var(--mono)}
+button.go{width:100%;background:var(--accent);color:#fff;font-weight:600;font-size:15px;padding:13px;border:none;border-radius:6px;cursor:pointer}
+button.go:hover{background:#356a4d}button.go:disabled{opacity:.5;cursor:not-allowed}
+.err{color:var(--down);font-size:13px;margin-top:12px;min-height:18px}
+.shake{animation:shk .35s}@keyframes shk{0%,100%{transform:translateX(0)}25%{transform:translateX(-9px)}75%{transform:translateX(9px)}}
+</style>
+</head>
+<body>
+<div class="card" id="card">
+  <div class="icon"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#3F7D5A" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4v16h16M8 14l3-4 3 3 4-6"/></svg></div>
+  <h1>Leg-Labeling</h1>
+  <p class="sub">Wer bist du? Dann Passwort eingeben.</p>
+  <div class="users">
+    <div class="user" id="uPouya" onclick="pick('pouya')"><span class="ava" style="width:48px;height:48px;border-radius:50%;background:#F1F6F3;color:#3F7D5A;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:700">P</span>Pouya</div>
+    <div class="user" id="uCristiano" onclick="pick('cristiano')"><span class="ava" style="width:48px;height:48px;border-radius:50%;background:#F1F6F3;color:#3F7D5A;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:700">C</span>Cristiano</div>
+    <div class="user" id="uClaude" onclick="pick('claude')"><span class="ava" style="width:48px;height:48px;border-radius:50%;background:#EFEAFE;color:#6D4FC2;display:flex;align-items:center;justify-content:center;font-size:21px;font-weight:700">✦</span>Claude</div>
+  </div>
+  <input type="password" id="pw" placeholder="Passwort" autocomplete="off" onkeydown="if(event.key==='Enter')login()">
+  <button class="go" id="btn" onclick="login()">Anmelden</button>
+  <div class="err" id="err"></div>
+</div>
+<script>
+let user=null;
+function pick(u){user=u;['pouya','cristiano','claude'].forEach(x=>{const el=document.getElementById('u'+x.charAt(0).toUpperCase()+x.slice(1));if(el)el.classList.toggle('sel',x===u);});document.getElementById('err').textContent='';document.getElementById('pw').focus();}
+function shake(msg){const e=document.getElementById('err');e.textContent=msg;const c=document.getElementById('card');c.classList.remove('shake');void c.offsetWidth;c.classList.add('shake');}
+async function login(){const pw=document.getElementById('pw').value;
+  if(!user){shake('Bitte wähle zuerst deinen Nutzer.');return;}
+  if(!pw){shake('Bitte Passwort eingeben.');return;}
+  const btn=document.getElementById('btn');btn.disabled=true;btn.textContent='Prüfe …';document.getElementById('err').textContent='';
+  try{
+    const res=await fetch('app/index.html',{headers:{'Authorization':'Basic '+btoa(user+':'+pw)},cache:'no-store'});
+    if(res.status===401){btn.disabled=false;btn.textContent='Anmelden';document.getElementById('pw').value='';shake('Falsches Passwort.');return;}
+    if(!res.ok){btn.disabled=false;btn.textContent='Anmelden';shake('Fehler '+res.status);return;}
+    btn.textContent='Lade Dashboard … (67 MB)';
+    let html=await res.text();
+    const inj='<script>window.__LEGUSER__='+JSON.stringify(user)+';window.__LEGAUTH__='+JSON.stringify('Basic '+btoa(user+':'+pw))+';<\/script>';
+    html=html.replace('<head>','<head>'+inj);
+    location.href=URL.createObjectURL(new Blob([html],{type:'text/html'}));
+  }catch(e){btn.disabled=false;btn.textContent='Anmelden';shake('Netzwerkfehler: '+e.message);}
+}
+</script>
+</body>
+</html>
