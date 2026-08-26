@@ -51,6 +51,8 @@ BUILTIN_MAP = {
     'math.max': 'pine_max',
     'math.round': 'pine_round',
     'math.floor': 'pine_floor',
+    'math.ceil': 'pine_ceil',
+    'math.exp': 'pine_exp',
     'na': 'is_na',
     'str.tostring': 'pine_str_tostring',
 }
@@ -271,7 +273,7 @@ class CodeGenerator:
         lines.append('    NA, is_na, pine_add, pine_sub, pine_mul, pine_div,')
         lines.append('    pine_eq, pine_neq, pine_lt, pine_gt, pine_lte, pine_gte,')
         lines.append('    pine_and, pine_or, pine_not,')
-        lines.append('    pine_abs, pine_min, pine_max, pine_round, pine_floor')
+        lines.append('    pine_abs, pine_min, pine_max, pine_round, pine_floor, pine_ceil, pine_exp')
         lines.append(')')
         lines.append('from pine_engine.runtime.series import Series')
         lines.append('from pine_engine.runtime.builtins import (')
@@ -316,7 +318,7 @@ class CodeGenerator:
         # Initialize built-in series
         lines.append(f'{ind}# Built-in series')
         for name in sorted(BUILTIN_SERIES):
-            lines.append(f'{ind}ctx.{name} = Series(max_lookback=100)')
+            lines.append(f'{ind}ctx.{name} = Series(max_lookback=300)')
 
         lines.append(f'{ind}')
         lines.append(f'{ind}# User series (variables used with [N])')
@@ -701,6 +703,12 @@ class CodeGenerator:
         if name == 'strategy.closedtrades.exit_comment':
             args = [self._gen_expr(a) for a in expr.args]
             return f'ctx.strategy.closedtrades.exit_comment(int({args[0]}))'
+        if name == 'strategy.closedtrades.profit':
+            args = [self._gen_expr(a) for a in expr.args]
+            return f'ctx.strategy.closedtrades.profit(int({args[0]}))'
+        if name == 'strategy.closedtrades.size':
+            args = [self._gen_expr(a) for a in expr.args]
+            return f'ctx.strategy.closedtrades.size(int({args[0]}))'
 
         # Built-in function mapping
         if name in BUILTIN_MAP:

@@ -162,3 +162,15 @@ def pine_floor(a):
     if is_na(a):
         return NA
     return math.floor(a)
+
+
+def pine_ceil(a):
+    if is_na(a):
+        return NA
+    return math.ceil(a)
+
+
+def pine_exp(a):
+    if is_na(a):
+        return NA
+    return math.exp(a)
