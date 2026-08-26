@@ -36,6 +36,11 @@ def cmd_run(args):
     if args.param:
         for p in args.param:
             key, val = p.split('=', 1)
+            # Bool zuerst: "false" ist als String truthy, ein bool-Input liesse
+            # sich sonst per --param nie ausschalten (still, ohne Fehlermeldung).
+            if val.lower() in ("true", "false"):
+                params[key] = (val.lower() == "true")
+                continue
             try:
                 params[key] = int(val)
             except ValueError:
