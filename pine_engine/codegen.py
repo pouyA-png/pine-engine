@@ -15,6 +15,7 @@ The generated code consists of two functions:
 from __future__ import annotations
 from typing import Set, Dict, List, Optional
 from pine_engine.ast_nodes import *  # noqa: includes WhileStatement
+from pine_engine.runtime import ext as _ext
 
 # Functions/namespaces that are visualization-only → skip entirely
 SKIP_FUNCTIONS = {
@@ -44,8 +45,8 @@ BUILTIN_MAP = {
     'ta.highest': 'ta_highest',
     'ta.lowest': 'ta_lowest',
     'ta.rsi': 'ta_rsi',
-    'ta.crossover': 'ta_crossover',
-    'ta.crossunder': 'ta_crossunder',
+    # ta.crossover/ta.crossunder: zustandsbehaftet in pine_engine/ext/ta_util.py
+    # (vorher bekamen sie nur Einzelwerte und lieferten immer false)
     'math.abs': 'pine_abs',
     'math.min': 'pine_min',
     'math.max': 'pine_max',
@@ -61,6 +62,12 @@ BUILTIN_MAP = {
 CONSTANT_MAP = {
     'strategy.long': 'STRATEGY_LONG',
     'strategy.short': 'STRATEGY_SHORT',
+    'strategy.direction.long': '"long"',
+    'strategy.direction.short': '"short"',
+    'strategy.direction.all': '"all"',
+    'strategy.oca.cancel': '"cancel"',
+    'strategy.oca.none': '"none"',
+    'strategy.oca.reduce': '"reduce"',
     'strategy.fixed': '"fixed"',
     'dayofweek.sunday': '1',
     'dayofweek.monday': '2',
@@ -110,6 +117,8 @@ class CodeGenerator:
         self.skip_vars: Set[str] = set()           # Vars assigned from skip functions
         self.indent_level = 0
         self.strategy_settings: Dict = {}
+        self._ext_site = 0                          # Aufrufstellen-Zaehler fuer ext-Builtins
+        _ext.load_all()
 
         # First pass: collect var names and detect series usage
         self._analyze()
@@ -672,28 +681,34 @@ class CodeGenerator:
             return 'NA'
 
         # Strategy API calls
+        if name == 'strategy.entry':
+            return self._gen_strategy_order(expr, method='entry')
         if name == 'strategy.order':
             return self._gen_strategy_order(expr)
+        if name == 'strategy.risk.allow_entry_in':
+            args = [self._gen_expr(a) for a in expr.args]
+            if not args and 'value' in expr.kwargs:
+                args = [self._gen_expr(expr.kwargs['value'])]
+            return f'ctx.strategy.risk_allow_entry_in({args[0]})'
         if name == 'strategy.exit':
             return self._gen_strategy_exit(expr)
         if name == 'strategy.cancel':
             args = [self._gen_expr(a) for a in expr.args]
+            if not args and 'id' in expr.kwargs:
+                args = [self._gen_expr(expr.kwargs['id'])]
             return f'ctx.strategy.cancel({args[0]})'
         if name == 'strategy.cancel_all':
             return 'ctx.strategy.cancel_all()'
         if name == 'strategy.close_all':
-            comment = ''
-            if 'comment' in expr.kwargs:
-                comment = self._gen_expr(expr.kwargs['comment'])
-            return f'ctx.strategy.close_all(comment={comment})' if comment else 'ctx.strategy.close_all()'
+            parts = self._gen_named_args(expr, ('comment',), drop=self._NO_EFFECT_KW)
+            return f'ctx.strategy.close_all({", ".join(parts)})'
         if name == 'strategy.close':
-            args_parts = [self._gen_expr(a) for a in expr.args]
-            comment = ''
-            if 'comment' in expr.kwargs:
-                comment = self._gen_expr(expr.kwargs['comment'])
-            if comment:
-                return f'ctx.strategy.close({args_parts[0]}, comment={comment})'
-            return f'ctx.strategy.close({args_parts[0]})'
+            parts = self._gen_named_args(expr, ('entry_id', 'comment', 'qty', 'qty_percent'),
+                                         drop=self._NO_EFFECT_KW, rename={'id': 'entry_id'})
+            # Altform unveraendert: erstes Argument positional
+            if parts and parts[0].startswith('entry_id='):
+                parts[0] = parts[0][len('entry_id='):]
+            return f'ctx.strategy.close({", ".join(parts)})'
         if name == 'strategy.opentrades.entry_comment':
             args = [self._gen_expr(a) for a in expr.args]
             return f'ctx.strategy.opentrades.entry_comment(int({args[0]}))'
@@ -719,6 +734,10 @@ class CodeGenerator:
                 return self._gen_ta_call(py_name, expr)
             return f'{py_name}({args})'
 
+        # Erweiterungen (pine_engine/ext/*) — eigene Zustandsablage je Aufrufstelle
+        if name in _ext.REGISTRY:
+            return self._gen_ext_call(name, expr)
+
         # Input functions → this shouldn't be called directly;
         # input.* calls are handled in _gen_var_decl via the inputs dict.
         # If we get here, it means an inline input call — return a params lookup.
@@ -729,20 +748,48 @@ class CodeGenerator:
         args = self._gen_call_args(expr)
         return f'{name}({args})'
 
-    def _gen_strategy_order(self, expr: FunctionCall) -> str:
+    # Pine-kwargs ohne Wirkung im Backtest (nur Alarme / Echtzeit)
+    _NO_EFFECT_KW = ('alert_message', 'disable_alert', 'immediately')
+
+    def _gen_named_args(self, expr: FunctionCall, positional, drop=(), rename=None):
+        """Positionsargumente nach Pine-Signatur benennen, kwargs anhaengen."""
+        rename = rename or {}
         parts = []
-        if len(expr.args) >= 1:
-            parts.append(f'id={self._gen_expr(expr.args[0])}')
-        if len(expr.args) >= 2:
-            parts.append(f'direction={self._gen_expr(expr.args[1])}')
+        for i, a in enumerate(expr.args):
+            if i >= len(positional):
+                raise NotImplementedError(
+                    f'{expr.name}: too many positional arguments ({len(expr.args)})')
+            parts.append(f'{positional[i]}={self._gen_expr(a)}')
         for k, v in expr.kwargs.items():
-            parts.append(f'{k}={self._gen_expr(v)}')
-        return f'ctx.strategy.order({", ".join(parts)})'
+            if k in drop:
+                continue
+            parts.append(f'{rename.get(k, k)}={self._gen_expr(v)}')
+        return parts
+
+    def _gen_strategy_order(self, expr: FunctionCall, method: str = 'order') -> str:
+        # Pine v5: strategy.order/entry(id, direction, qty, limit, stop, oca_name, oca_type, comment, ...)
+        parts = self._gen_named_args(
+            expr, ('id', 'direction', 'qty', 'limit', 'stop', 'oca_name', 'oca_type', 'comment'),
+            drop=self._NO_EFFECT_KW)
+        if method == 'entry' and not any(p.startswith('pyramiding=') for p in parts):
+            pyr = self.strategy_settings.get('pyramiding')
+            if isinstance(pyr, (int, float)) and not isinstance(pyr, bool) and pyr:
+                parts.append(f'pyramiding={int(pyr)}')
+        return f'ctx.strategy.{method}({", ".join(parts)})'
 
     def _gen_strategy_exit(self, expr: FunctionCall) -> str:
+        # Pine-v5-Reihenfolge der Positionsargumente von strategy.exit
+        positional = ('id', 'from_entry', 'qty', 'qty_percent', 'profit', 'limit',
+                      'loss', 'stop', 'trail_price', 'trail_points', 'trail_offset',
+                      'oca_name', 'comment', 'comment_profit', 'comment_loss',
+                      'comment_trailing', 'alert_message', 'alert_profit',
+                      'alert_loss', 'alert_trailing', 'disable_alert')
+        if len(expr.args) > len(positional):
+            raise NotImplementedError(
+                f'strategy.exit: too many positional arguments ({len(expr.args)})')
         parts = []
-        if len(expr.args) >= 1:
-            parts.append(f'id={self._gen_expr(expr.args[0])}')
+        for i, a in enumerate(expr.args):
+            parts.append(f'{positional[i]}={self._gen_expr(a)}')
         for k, v in expr.kwargs.items():
             parts.append(f'{k}={self._gen_expr(v)}')
         return f'ctx.strategy.exit({", ".join(parts)})'
@@ -765,6 +812,24 @@ class CodeGenerator:
         for k, v in expr.kwargs.items():
             args.append(f'{k}={self._gen_expr(v)}')
         return f'{py_name}({", ".join(args)})'
+
+    def _gen_ext_call(self, name: str, expr: FunctionCall) -> str:
+        """ext-Builtin: ctx.ext_call(name, site, args...) mit Series-Durchreichung."""
+        spec = _ext.REGISTRY[name]
+        self._ext_site += 1
+        args = [repr(name), str(self._ext_site)]
+        for i, a in enumerate(expr.args):
+            if i in spec.series_args and isinstance(a, Identifier) and a.name not in self._func_locals:
+                if a.name in BUILTIN_SERIES:
+                    args.append(f'ctx.{a.name}')
+                    continue
+                if a.name in self.series_vars and a.name not in self.skip_vars:
+                    args.append(f'ctx.series_{a.name}')
+                    continue
+            args.append(self._gen_expr(a))
+        for k, v in expr.kwargs.items():
+            args.append(f'{k}={self._gen_expr(v)}')
+        return f'ctx.ext_call({", ".join(args)})'
 
     def _gen_call_args(self, expr: FunctionCall) -> str:
         """Generate comma-separated argument list."""
@@ -797,6 +862,13 @@ class CodeGenerator:
             return 'ctx.strategy.closedtrades_count'
         if name == 'strategy.equity':
             return 'ctx.strategy.equity'
+
+        # Erweiterungen: Konstanten und Variablen (pine_engine/ext/*)
+        if name in _ext.CONSTANTS:
+            return repr(_ext.CONSTANTS[name])
+        if name in _ext.VARIABLES and name not in self.all_declared:
+            self._ext_site += 1
+            return f'ctx.ext_var({name!r}, {self._ext_site})'
 
         # Persistent var
         if name in self.var_names:

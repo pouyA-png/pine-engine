@@ -8,6 +8,8 @@ Execution model (calc_on_every_tick=false):
     1. strategy.process_bar(bar)     ← fill pending entries + exits
     2. update ctx with bar data      ← built-in series + bar fields
     3. execute_bar(ctx)              ← run transpiled Pine logic
+    4. strategy.process_entrybar_exits()  ← Stop/Ziel ab der Fuellung
+                                            (PINE_ENTRYBAR_STOP, Default 'off')
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ from pine_engine.runtime.na import NA, is_na
 from pine_engine.runtime.strategy import StrategyAPI
 from pine_engine.runtime.broker import Bar, ClosedTrade
 from pine_engine.data.loader import load_bars_csv, bar_timestamp_ms
+from pine_engine.runtime import ext as _ext
 
 
 class RuntimeContext:
@@ -46,6 +49,13 @@ class RuntimeContext:
         self.bar_low: float = 0.0
         self.bar_close: float = 0.0
         self.bar_idx: int = 0
+        self.ext_states: Dict[int, dict] = {}   # Zustand je ext-Aufrufstelle
+
+    def ext_call(self, name, site, *args, **kwargs):
+        return _ext.call(self, name, site, *args, **kwargs)
+
+    def ext_var(self, name, site):
+        return _ext.get_var(self, name, site)
 
     def update_bar(self, bar: Bar):
         """Set current bar data before executing Pine logic."""
@@ -154,6 +164,10 @@ def run_backtest(compiled: CompiledPine,
 
         # 3. Run transpiled Pine logic
         compiled.execute_bar(ctx)
+
+        # 4. Zweiter Ausstiegs-Durchgang, nur fuer die in DIESER Bar gefuellten
+        #    Positionen (PINE_ENTRYBAR_STOP; 'off' = Default = kein Durchgang).
+        ctx.strategy.process_entrybar_exits()
 
     return ctx.strategy.get_results()
 

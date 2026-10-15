@@ -1,0 +1,28 @@
+//@version=5
+strategy("combo", pyramiding=1)
+nq.cost_points(2)
+nq.fill_slippage(0.25, 0.5)
+nq.risk_daily_loss(2000)
+nq.risk_max_trades_day(3)
+nq.be_after_partial(0)
+nq.trail_r(4, 1)
+nq.eod_flat(1555)
+nq.track_excursion()
+ema = ta.ema(close, 20)
+atr = ta.atr(14)
+orh = nq.or_high(15)
+orl = nq.or_low(15)
+c5 = request.security(syminfo.tickerid, "5", close, lookahead=barmerge.lookahead_off)
+if nq.rth and not na(orh) and strategy.position_size == 0 and nq.sess_minutes_since(930) < 240
+    if ta.crossover(close, orh) and c5 > ema
+        e = close
+        s = e - math.max(atr * 3, 10)
+        strategy.entry("L", strategy.long, qty=2, limit=nq.lvl_nudge(e, true, 0.25))
+        strategy.exit("L_tp1", from_entry="L", qty=1, limit=e + 2 * (e - s), stop=s)
+        strategy.exit("L_tp2", from_entry="L", qty=1, limit=nq.lvl_min_target(e, e + 3 * (e - s), true, 150), stop=s)
+    if ta.crossunder(close, orl) and c5 < ema
+        e = close
+        s = e + math.max(atr * 3, 10)
+        strategy.entry("S", strategy.short, qty=2, limit=nq.lvl_nudge(e, false, 0.25))
+        strategy.exit("S_tp1", from_entry="S", qty=1, limit=e - 2 * (s - e), stop=s)
+        strategy.exit("S_tp2", from_entry="S", qty=1, limit=nq.lvl_min_target(e, e - 3 * (s - e), false, 150), stop=s)

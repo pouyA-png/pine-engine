@@ -81,6 +81,24 @@ def cmd_run(args):
             print(f"  {t.entry_time} | {t.side:5} | entry={t.entry_price:.2f} "
                   f"exit={t.exit_price:.2f} | {t.exit_comment:12} | PnL={pnl:+.2f}")
 
+    # P10: erweiterte Auswertung / Export — nur mit Flag (Default-Ausgabe unveraendert)
+    if getattr(args, 'metrics', False) or getattr(args, 'export_trades', None):
+        from pine_engine.reporting import metrics_ext
+        if args.metrics:
+            s = metrics_ext.summary(trades, point_value=args.point_value,
+                                    initial_capital=args.capital,
+                                    group_by_entry=args.group_by_entry)
+            print(f"\n{'='*60}")
+            print(f"ERWEITERTE KENNZAHLEN (Punktwert {args.point_value:g} $/Punkt, "
+                  f"Startkapital {args.capital:,.0f} $)")
+            print(f"{'='*60}")
+            print(metrics_ext.format_summary(s))
+        if args.export_trades:
+            n = metrics_ext.export_trades(trades, args.export_trades,
+                                          point_value=args.point_value,
+                                          group_by_entry=args.group_by_entry)
+            print(f"\nTrades exportiert: {n} Zeilen -> {args.export_trades}")
+
 
 def _pnl(trade) -> float:
     """Calculate PnL for a trade."""
@@ -128,6 +146,16 @@ def main():
     run_p.add_argument('--start', help='Start date YYYY-MM-DD')
     run_p.add_argument('--end', help='End date YYYY-MM-DD')
     run_p.add_argument('--param', action='append', help='Parameter override: key=value')
+    run_p.add_argument('--metrics', action='store_true',
+                       help='Erweiterte Kennzahlen (P10, reporting/metrics_ext.py)')
+    run_p.add_argument('--export-trades', dest='export_trades',
+                       help='CSV je Trade inkl. extra-Spalten schreiben')
+    run_p.add_argument('--point-value', dest='point_value', type=float, default=20.0,
+                       help='$ je Punkt fuer --metrics/--export-trades (Default 20)')
+    run_p.add_argument('--capital', type=float, default=100000.0,
+                       help='Startkapital $ fuer --metrics (DD in %%, Default 100000)')
+    run_p.add_argument('--group-by-entry', dest='group_by_entry', action='store_true',
+                       help='Teilexits je Position zusammenfassen (--metrics/--export-trades)')
 
     # compile command
     comp_p = sub.add_parser('compile', help='Compile Pine to Python')

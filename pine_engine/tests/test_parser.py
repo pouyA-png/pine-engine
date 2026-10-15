@@ -1,7 +1,8 @@
 """Tests for Phase 2: Pine Script Parser."""
 
 import sys
-sys.path.insert(0, '/home/pouya/pine-engine')
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # eigene Engine-Kopie testen, nicht ~/pine-engine
 
 from pine_engine.lexer import tokenize
 from pine_engine.parser import parse, Parser, ParseError

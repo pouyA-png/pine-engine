@@ -11,6 +11,8 @@ Built for NQ pre-open leg strategies, but the language subset is general enough 
 
 ---
 
+> **Deutsche Erklärung der Engine und aller Erweiterungen: [ENGINE_ERKLAERUNG.md](ENGINE_ERKLAERUNG.md)** · Funktionskatalog: [docs/ext/README.md](docs/ext/README.md)
+
 ## Quick start
 
 ```bash
@@ -117,11 +119,12 @@ for t in trades[-5:]:
 | Full control flow: `if / else / for / while` | Yes |
 | Series indexing (`close[1]`, `high[N]`) | Yes |
 | Pine built-ins: `ta.pivothigh`, `ta.pivotlow`, `ta.rsi`, `ta.atr`, `ta.sma`, `ta.ema`, `ta.crossover`, `ta.change`, `math.*`, `str.tostring`, `hour`, `minute`, `dayofweek`, `dayofmonth`, `year`, `month`, `timestamp` | Yes |
-| `strategy.entry / order / exit / close / close_all / cancel / cancel_all` | Yes |
+| `strategy.order / exit / close / close_all / cancel / cancel_all` | Yes |
+| `strategy.entry` | Yes (since 2026-09-29) — pyramiding + reversal, see docs/ext/entries.md |
 | `strategy.position_size / equity / opentrades / closedtrades` | Yes |
 | `alertcondition` / `alert()` | parsed, not executed (no external alerts) |
 | `plot / plotshape / label / line / box` | parsed, silently no-op (no rendering) |
-| `request.security` (MTF) | No |
+| `request.security` (MTF) | Partial — open/high/low/close, lookahead off (docs/ext/nq_htf.md) |
 | Libraries (`import X as Y`) | No |
 | User-defined types / methods | No |
 

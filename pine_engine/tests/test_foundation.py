@@ -2,12 +2,13 @@
 
 import math
 import sys
-sys.path.insert(0, '/home/pouya/pine-engine')
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # eigene Engine-Kopie testen, nicht ~/pine-engine
 
 from pine_engine.runtime.na import (
     NA, is_na, pine_add, pine_sub, pine_mul, pine_div,
     pine_eq, pine_lt, pine_gt, pine_and, pine_or, pine_not,
-    pine_abs, pine_min, pine_max, pine_round, pine_floor
+    pine_abs, pine_min, pine_max, pine_round, pine_floor, pine_ceil
 )
 from pine_engine.runtime.series import Series
 from pine_engine.runtime.broker import BrokerEmulator, Bar
@@ -78,6 +79,8 @@ def test_na_math():
     assert pine_max(3, NA) == 3
     assert pine_round(3.456, 2) == 3.46
     assert pine_floor(3.9) == 3
+    assert pine_ceil(3.1) == 4
+    assert is_na(pine_ceil(NA))
     print("  [PASS] NA math wrappers")
 
 
